@@ -172,6 +172,10 @@ public class MongoConfig {
     public void setMongoURIs( String key, MongoURI[] values ){
         MongoConfigUtil.setMongoURIs( _conf, key, values );
     }
+    
+    public MongoRequest[] getMongoRequests(){
+    	return MongoConfigUtil.getMongoRequests(_conf);
+    }
 
     public void setMongoURIsString( String key, String[] values ) {
         MongoConfigUtil.setMongoURIsString( _conf, key, values );
@@ -359,7 +363,7 @@ public class MongoConfig {
      * Hadoop will assign one InputSplit per mapper.
      *
      * This is {@code true} by default now, but if {@code false}, only one InputSplit (your whole collection) will be
-     * assigned to Hadoop – severely reducing parallel mapping.
+     * assigned to Hadoop ��� severely reducing parallel mapping.
      */
     public boolean createInputSplits() {
         return MongoConfigUtil.createInputSplits( _conf );
@@ -371,7 +375,7 @@ public class MongoConfig {
      * Hadoop will assign one InputSplit per mapper.
      *
      * This is {@code true} by default now, but if {@code false}, only one InputSplit (your whole collection) will be
-     * assigned to Hadoop – severely reducing parallel mapping.
+     * assigned to Hadoop ��� severely reducing parallel mapping.
      */
     public void setCreateInputSplits( boolean value ) {
         MongoConfigUtil.setCreateInputSplits( _conf, value );

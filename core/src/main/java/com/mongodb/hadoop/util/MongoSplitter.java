@@ -1,13 +1,28 @@
 package com.mongodb.hadoop.util;
 
-import com.mongodb.*;
-import com.mongodb.hadoop.*;
-import com.mongodb.hadoop.input.*;
-import org.apache.commons.logging.*;
-import org.apache.hadoop.mapreduce.*;
-
 import java.net.UnknownHostException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.mapreduce.InputSplit;
+
+import com.mongodb.BasicDBList;
+import com.mongodb.BasicDBObject;
+import com.mongodb.BasicDBObjectBuilder;
+import com.mongodb.CommandResult;
+import com.mongodb.DB;
+import com.mongodb.DBCollection;
+import com.mongodb.DBCursor;
+import com.mongodb.DBObject;
+import com.mongodb.Mongo;
+import com.mongodb.MongoURI;
+import com.mongodb.hadoop.MongoConfig;
+import com.mongodb.hadoop.input.MongoInputSplit;
 
 /**
  * Copyright (c) 2010, 2011 10gen, Inc. <http://10gen.com>
@@ -39,7 +54,7 @@ public class MongoSplitter {
          * On the jobclient side we want *ONLY* the min and max ids for each
          * split; Actual querying will be done on the individual mappers.
          */
-        MongoURI[] uris = conf.getInputURIs();
+        MongoRequest[] requests = conf.getMongoRequests();
 
         //connecting to the individual backend mongods is not safe, do not do so by default
         final boolean useShards = conf.canReadSplitsFromShards();
@@ -48,7 +63,12 @@ public class MongoSplitter {
 
         List<InputSplit> splits = new ArrayList<InputSplit>();
 
-        for (MongoURI uri: uris) {
+        for (MongoRequest request: requests) {
+
+        	MongoURI uri = new MongoURI(request.getUri());
+        	DBObject query = request.getQuery();
+
+        	log.info("Calculating single splits on '" + uri + "'\nQuery: '" + query + "'.");
 
             Mongo mongo;
             try {
@@ -71,17 +91,17 @@ public class MongoSplitter {
                         log.warn( "Combining 'use chunks' and 'read from shards directly' can have unexpected & erratic behavior in a live system due to chunk migrations. " );
 
                     log.info( "Sharding mode calculation entering." );
-                    splits.addAll(calculateShardedSplits( conf, useShards, useChunks, slaveOk, uri, mongo ));
+                    splits.addAll(calculateShardedSplits( conf, useShards, useChunks, slaveOk, uri, mongo, query ));
                 }
                 else { // perfectly ok for sharded setups to run with a normally calculated split. May even be more efficient for some cases
                     log.info( "Using Unsharded Split mode (Calculating multiple splits though)" );
-                    splits.addAll(calculateUnshardedSplits( conf, slaveOk, uri, coll ));
+                    splits.addAll(calculateUnshardedSplits( conf, slaveOk, uri, coll, query ));
                 }
 
             }
             else {
                 log.info( "Creation of Input Splits is disabled; Non-Split mode calculation entering." );
-                splits.addAll(calculateSingleSplit( conf, uri ));
+                splits.addAll(calculateSingleSplit( conf, uri, query ));
             }
         }
 
@@ -89,12 +109,11 @@ public class MongoSplitter {
     }
 
     private static List<InputSplit> calculateUnshardedSplits( MongoConfig conf, boolean slaveOk, 
-                                                              MongoURI uri, DBCollection coll ){
+                                                              MongoURI uri, DBCollection coll, DBObject q){
         final List<InputSplit> splits = new ArrayList<InputSplit>();
         final DBObject splitKey = conf.getInputSplitKey(); // a bit slower but forces validation of the JSON
         final int splitSize = conf.getSplitSize(); // in MB
         final String ns = coll.getFullName();
-        final DBObject q = conf.getQuery();
 
         log.info( "Calculating unsharded input splits on namespace '" + ns + "' with Split Key '" + splitKey.toString() + "' and a split size of '" + splitSize + "'mb per" );
 
@@ -156,10 +175,11 @@ public class MongoSplitter {
                                     conf.getSort(), conf.getLimit(), conf.getSkip(), conf.isNoTimeout() );
     }
     
-    private static List<InputSplit> calculateSingleSplit( MongoConfig conf, MongoURI uri ){
+    private static List<InputSplit> calculateSingleSplit( MongoConfig conf, MongoURI uri, DBObject query ){
         final List<InputSplit> splits = new ArrayList<InputSplit>( 1 );
         // no splits, no sharding
-        splits.add( new MongoInputSplit( uri, conf.getInputKey(), conf.getQuery(), 
+           
+        splits.add( new MongoInputSplit( uri, conf.getInputKey(), query, 
                                          conf.getFields(), conf.getSort(), conf.getLimit(), conf.getSkip(),
                                          conf.isNoTimeout() ) );
 
@@ -173,15 +193,15 @@ public class MongoSplitter {
         return splits;
     }
 
-    private static List<InputSplit> calculateShardedSplits(MongoConfig conf, boolean useShards, boolean useChunks, boolean slaveOk, MongoURI uri, Mongo mongo) {
+    private static List<InputSplit> calculateShardedSplits(MongoConfig conf, boolean useShards, boolean useChunks, boolean slaveOk, MongoURI uri, Mongo mongo, DBObject query) {
         final List<InputSplit> splits;
         try {
             if ( useChunks )
-                splits = fetchSplitsViaChunks( conf, uri, mongo, useShards, slaveOk );
+                splits = fetchSplitsViaChunks( conf, uri, mongo, useShards, slaveOk, query );
             else if ( useShards ){
                 log.warn( "Fetching Input Splits directly from shards is potentially dangerous for data "
                           + "consistency should migrations occur during the retrieval." );
-                splits = fetchSplitsFromShards( conf, uri, mongo, slaveOk );
+                splits = fetchSplitsFromShards( conf, uri, mongo, slaveOk, query );
             }
             else throw new IllegalStateException( "Neither useChunks nor useShards enabled; failed to pick a valid state. " );
 
@@ -209,7 +229,8 @@ public class MongoSplitter {
     private static List<InputSplit> fetchSplitsFromShards( final MongoConfig conf,
                                                            MongoURI uri,
                                                            Mongo mongo,
-                                                           Boolean slaveOk ){
+                                                           Boolean slaveOk,
+                                                           DBObject query){
         log.warn( "WARNING getting splits that connect directly to the backend mongods"
                   + " is risky and might not produce correct results" );
         DB configDb = mongo.getDB( "config" );
@@ -237,7 +258,7 @@ public class MongoSplitter {
         //todo: using stats only get the shards that actually host data for this collection
         for ( String host : shardSet ){
             MongoURI thisUri = getNewURI( uri, host, slaveOk );
-            splits.add( new MongoInputSplit( thisUri, conf.getInputKey(), conf.getQuery(), conf.getFields(),
+            splits.add( new MongoInputSplit( thisUri, conf.getInputKey(), query, conf.getFields(),
                                              conf.getSort(), conf.getLimit(), conf.getSkip(), 
                                              conf.isNoTimeout() ) ); // TODO - Should the input Key be the shard key?
         }
@@ -251,8 +272,8 @@ public class MongoSplitter {
                                                           MongoURI uri,
                                                           Mongo mongo,
                                                           boolean useShards,
-                                                          Boolean slaveOk ){
-        DBObject originalQuery = conf.getQuery();
+                                                          Boolean slaveOk,
+                                                          DBObject originalQuery){
 
         if ( useShards )
             log.warn( "WARNING getting splits that connect directly to the backend mongods"

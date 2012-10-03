@@ -155,7 +155,7 @@ object MongoHadoopBuild extends Build {
   )
 
   val coreSettings = dependentSettings ++ Seq( 
-    libraryDependencies ++= Seq(Dependencies.mongoJavaDriver, Dependencies.junit),
+    libraryDependencies ++= Seq(Dependencies.mongoJavaDriver, Dependencies.junit, Dependencies.gson),
     libraryDependencies <++= (scalaVersion, libraryDependencies, hadoopRelease) { (sv, deps, hr: String) => 
 
       val hadoopDeps = coreHadoopMap.getOrElse(hr, sys.error("Hadoop Release '%s' is an invalid/unsupported release. Valid entries are in %s".format(hr, coreHadoopMap.keySet)))
@@ -200,7 +200,6 @@ object MongoHadoopBuild extends Build {
         
         def mrDep(mod: String) = "org.apache.hadoop" % "hadoop-mapreduce-client-%s".format(mod) % altStreamingVer.getOrElse(hadoopVersion) notTransitive() exclude("org.apache.hadoop", "hdfs")
 
-        
         if (hadoopVersion.startsWith("0.22")) {
             deps ++ Seq("org.apache.hadoop" % "hadoop-mapred" % altStreamingVer.getOrElse(hadoopVersion))
         } else if (hadoopVersion.startsWith("0.23")) {
@@ -253,6 +252,7 @@ object Dependencies {
   val mongoJavaDriver = "org.mongodb" % "mongo-java-driver" % "2.7.3"
   val junit = "junit" % "junit" % "4.10" % "test"
   val flume = "com.cloudera" % "flume-core" % "0.9.4-cdh3u3"
+  val gson = "com.google.code.gson" % "gson" % "2.2.2"
 }
 
 // vim: set ts=2 sw=2 sts=2 et:

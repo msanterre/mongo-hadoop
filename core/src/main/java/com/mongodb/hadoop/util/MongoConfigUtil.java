@@ -17,14 +17,26 @@
 
 package com.mongodb.hadoop.util;
 
-import java.util.*;
+import java.util.Arrays;
 
-import com.mongodb.*;
-import com.mongodb.util.*;
-import org.apache.commons.logging.*;
-import org.apache.hadoop.conf.*;
-import org.apache.hadoop.io.*;
-import org.apache.hadoop.mapreduce.*;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.RawComparator;
+import org.apache.hadoop.mapreduce.InputFormat;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.OutputFormat;
+import org.apache.hadoop.mapreduce.Partitioner;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import com.google.gson.Gson;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DB;
+import com.mongodb.DBCollection;
+import com.mongodb.DBObject;
+import com.mongodb.Mongo;
+import com.mongodb.MongoURI;
+import com.mongodb.util.JSON;
 
 /**
  * Configuration helper tool for MongoDB related Map/Reduce jobs
@@ -59,6 +71,8 @@ public class MongoConfigUtil {
 
     public static final String INPUT_URIS = "mongo.input.uris";
     public static final String OUTPUT_URI = "mongo.output.uri";
+    
+    public static final String INPUT_REQUESTS = "mongo.input.requests";
 
     /**
      * The MongoDB field to read from for the Mapper Input.
@@ -109,7 +123,7 @@ public class MongoConfigUtil {
      * Hadoop will assign one InputSplit per mapper.
      * 
      * This is {@code true} by default now, but if {@code false}, only one InputSplit (your whole collection) will be
-     * assigned to Hadoop – severely reducing parallel mapping.
+     * assigned to Hadoop ��� severely reducing parallel mapping.
      */
     public static final String CREATE_INPUT_SPLITS = "mongo.input.split.create_input_splits";
 
@@ -372,7 +386,21 @@ public class MongoConfigUtil {
                                                 e );
         }
     }
-
+    
+    public static void setMongoRequests(Configuration conf, MongoRequest[] requests){
+    	Gson gson = new Gson();
+    	String requestJson = gson.toJson(requests);
+    	conf.set(INPUT_REQUESTS, requestJson);
+    }
+    
+    public static MongoRequest[] getMongoRequests(Configuration conf){
+    	
+    	Gson gson = new Gson();
+    	String requestsJson = conf.get(INPUT_REQUESTS);
+    	MongoRequest[] requests = gson.fromJson(requestsJson, MongoRequest[].class);
+    	return requests;
+    }
+        
     public static DBObject getDBObject( Configuration conf, String key ){
         try {
             final String json = conf.get( key );
